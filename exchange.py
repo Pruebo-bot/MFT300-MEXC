@@ -32,31 +32,35 @@ class MEXCClient:
             self._session = aiohttp.ClientSession()
         return self._session
 
-    def _sign(self, params: str) -> str:
-        """HMAC SHA256 estándar."""
+    def _sign(self, to_sign: str) -> str:
+        """HMAC SHA256 — firma MEXC: accessKey + timestamp + params."""
         return hmac.new(
             self.api_secret.encode("utf-8"),
-            params.encode("utf-8"),
+            to_sign.encode("utf-8"),
             hashlib.sha256
         ).hexdigest()
 
     def _build_headers(self, timestamp: str, params_str: str) -> dict:
-        signature = self._sign(self.api_key + timestamp + params_str)
+        # Orden correcto: api_key + timestamp + params_string
+        to_sign  = self.api_key + timestamp + params_str
+        signature = self._sign(to_sign)
         return {
-            "ApiKey":         self.api_key,
-            "Request-Time":   timestamp,
-            "Signature":      signature,
-            "Content-Type":   "application/json",
+            "ApiKey":       self.api_key,
+            "Request-Time": timestamp,
+            "Signature":    signature,
+            "Content-Type": "application/json",
         }
 
     async def _get(self, path: str, params: dict = None) -> Optional[dict]:
         try:
             session   = await self._get_session()
             timestamp = str(int(time.time() * 1000))
-            qs        = "&".join(f"{k}={v}" for k, v in sorted((params or {}).items()))
-            headers   = self._build_headers(timestamp, qs)
-            url       = f"{self.base_url}{path}"
-            async with session.get(url, params=params, headers=headers) as resp:
+            # Filtrar params None y ordenar alfabéticamente
+            clean_params = {k: v for k, v in (params or {}).items() if v is not None}
+            qs = "&".join(f"{k}={v}" for k, v in sorted(clean_params.items()))
+            headers = self._build_headers(timestamp, qs)
+            url     = f"{self.base_url}{path}"
+            async with session.get(url, params=clean_params, headers=headers) as resp:
                 data = await resp.json()
                 if data.get("success") and data.get("code") == 0:
                     return data.get("data")
@@ -69,11 +73,18 @@ class MEXCClient:
         try:
             session   = await self._get_session()
             timestamp = str(int(time.time() * 1000))
-            body_str  = json.dumps(body or {})
-            headers   = self._build_headers(timestamp, body_str)
-            url       = f"{self.base_url}{path}"
+            # Filtrar valores None del body
+            clean_body = {k: v for k, v in (body or {}).items() if v is not None}
+            body_str   = json.dumps(clean_body)
+            headers    = self._build_headers(timestamp, body_str)
+            url        = f"{self.base_url}{path}"
             async with session.post(url, data=body_str, headers=headers) as resp:
-                data = await resp.json()
+                text = await resp.text()
+                try:
+                    data = json.loads(text)
+                except Exception:
+                    log.error("POST %s respuesta no JSON: %s", path, text[:200])
+                    return None
                 if data.get("success") and data.get("code") == 0:
                     return data.get("data")
                 log.warning("POST %s error: %s", path, data)
