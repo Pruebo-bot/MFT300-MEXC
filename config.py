@@ -3,7 +3,7 @@ import os
 # ── API MEXC Futuros ───────────────────────────────────────────────────────────
 MEXC_API_KEY    = os.getenv("MEXC_API_KEY", "")
 MEXC_API_SECRET = os.getenv("MEXC_API_SECRET", "")
-BASE_URL        = "https://contract.mexc.com"
+BASE_URL        = os.getenv("MEXC_BASE_URL", "https://futures.mexc.com")
 
 # ── Telegram ───────────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
@@ -77,6 +77,9 @@ SCHEDULED_PAUSE_END:     str  = os.getenv("SCHEDULED_PAUSE_END",   "08:00")
 
 # ── Limpieza periódica ─────────────────────────────────────────────────────────
 CLEANUP_INTERVAL_SEC: int = int(os.getenv("CLEANUP_INTERVAL_SEC", "1800"))
+
+# ── API Keys caducidad ────────────────────────────────────────────────────────
+API_EXPIRY_DATE: str = os.getenv("API_EXPIRY_DATE", "")  # Formato: YYYY-MM-DD
 
 # ── Loop ───────────────────────────────────────────────────────────────────────
 LOOP_INTERVAL_SEC: float = float(os.getenv("LOOP_INTERVAL_SEC", "2"))
