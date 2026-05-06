@@ -25,7 +25,7 @@ class GridEngine:
         return self.state.grid_center is not None
 
     def _round_price(self, price: float) -> float:
-        return round(price, 6)
+        return round(price, 4)  # MEXC FET_USDT priceScale=4
 
     async def _get_symbol_info(self):
         if self._symbol_info is None:
@@ -71,7 +71,7 @@ class GridEngine:
             )
             if result:
                 placed += 1
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.3)  # MEXC rate limit
 
         log.info("Órdenes colocadas: %d/%d", placed, len(levels))
         log.info("Grid activo | %d niveles colocados", placed)

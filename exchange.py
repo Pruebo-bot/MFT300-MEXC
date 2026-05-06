@@ -265,9 +265,14 @@ class MEXCClient:
         """Calcula el volumen en contratos para MEXC."""
         contract_size = float(symbol_info.get("contractSize", 1))
         vol_scale     = int(symbol_info.get("volScale", 0))
+        min_vol       = float(symbol_info.get("minVol", 1))
         # vol = (margin * leverage) / (price * contractSize)
         vol = (margin_usdt * leverage) / (price * contract_size)
-        return round(vol, vol_scale)
+        vol = round(vol, vol_scale)
+        if vol_scale == 0:
+            vol = int(vol)
+        vol = max(vol, min_vol)
+        return vol
 
     async def get_last_closed_trade(self, symbol: str) -> Optional[dict]:
         """Obtiene el último trade cerrado para detectar PnL."""
