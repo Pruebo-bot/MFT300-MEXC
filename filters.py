@@ -21,7 +21,7 @@ class ProtectedZone:
     se encuentra en la franja [PROTECTED_ZONE_LOW, PROTECTED_ZONE_HIGH].
     """
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg):
         self.low = cfg.PROTECTED_ZONE_LOW    # p.ej. -4.0
         self.high = cfg.PROTECTED_ZONE_HIGH  # p.ej.  1.0
 
@@ -38,7 +38,7 @@ class MaxLossFilter:
     Activa pausa si el PnL del último cierre supera el umbral de pérdida máxima.
     """
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg):
         self.threshold = cfg.MAX_LOSS_PCT  # p.ej. -3.0
 
     def triggered(self, closed_pnl_pct: float) -> bool:
@@ -103,7 +103,7 @@ class ScheduledPause:
     Por defecto: 13:30 – 17:00 hora de España (zona horaria del servidor).
     """
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg):
         start_h, start_m = map(int, cfg.PAUSE_START.split(":"))
         end_h, end_m = map(int, cfg.PAUSE_END.split(":"))
         self.start = dtime(start_h, start_m)
