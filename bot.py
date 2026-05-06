@@ -35,12 +35,12 @@ log = logging.getLogger("MFT300_MEXC")
 class MFT300MEXCBot:
     def __init__(self):
         self.cfg       = sys.modules[__name__].__builtins__  # usamos config directamente
+        import config as cfg
+        self.cfg = cfg
+
         self.exchange  = MEXCClient()
         self.bot_state = BotState()
         self.notifier  = TelegramNotifier(cfg)
-
-        import config as cfg
-        self.cfg = cfg
 
         self.pairs: dict[str, PairState] = {s: PairState(symbol=s) for s in cfg.SYMBOLS}
         self.grids: dict[str, GridEngine] = {
