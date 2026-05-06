@@ -37,7 +37,7 @@ class MFT300MEXCBot:
         self.cfg       = sys.modules[__name__].__builtins__  # usamos config directamente
         self.exchange  = MEXCClient()
         self.bot_state = BotState()
-        self.notifier  = TelegramNotifier()
+        self.notifier  = TelegramNotifier(cfg)
 
         import config as cfg
         self.cfg = cfg
