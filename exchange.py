@@ -113,12 +113,24 @@ class MEXCClient:
         return []
 
     async def get_contract_info(self, symbol: str) -> Optional[dict]:
-        data = await self._get("/api/v1/contract/detail", {"symbol": symbol})
-        if data and isinstance(data, list):
-            for c in data:
-                if c.get("symbol") == symbol:
-                    return c
-        return None
+        try:
+            session = await self._get_session()
+            url     = f"{self.base_url}/api/v1/contract/detail"
+            async with session.get(url, params={"symbol": symbol}) as resp:
+                data = await resp.json()
+                if data.get("success") and data.get("code") == 0:
+                    result = data.get("data")
+                    if isinstance(result, list):
+                        for c in result:
+                            if c.get("symbol") == symbol:
+                                return c
+                    elif isinstance(result, dict):
+                        return result
+        except Exception as e:
+            log.error("get_contract_info error: %s", e)
+        # Fallback — devolver info mínima para que el bot pueda operar
+        log.warning("[%s] Usando info de contrato por defecto", symbol)
+        return {"symbol": symbol, "contractSize": 1, "volScale": 2}
 
     # ── Cuenta ─────────────────────────────────────────────────────────────────
 
@@ -150,12 +162,18 @@ class MEXCClient:
     # ── Órdenes ────────────────────────────────────────────────────────────────
 
     async def set_leverage(self, symbol: str, leverage: int) -> bool:
-        """Configura apalancamiento para ambos lados."""
-        result = await self._post("/api/v1/private/position/change_leverage", {
+        """Configura apalancamiento en MEXC."""
+        result = await self._post("/api/v1/private/position/change_margin_type", {
             "symbol":   symbol,
             "leverage": leverage,
-            "openType": 1,  # 1=aislado, 2=cruzado
         })
+        if result is None:
+            # Intentar endpoint alternativo
+            result = await self._post("/api/v1/private/position/change_leverage", {
+                "symbol":      symbol,
+                "leverage":    leverage,
+                "positionId":  0,
+            })
         return result is not None
 
     async def get_open_orders(self, symbol: str) -> list:
