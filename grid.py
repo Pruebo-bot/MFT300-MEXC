@@ -71,7 +71,7 @@ class GridEngine:
             )
             if result:
                 placed += 1
-            await asyncio.sleep(0.3)  # MEXC rate limit
+            await asyncio.sleep(0.5)  # MEXC rate limit: máx 2 órdenes/seg
 
         log.info("Órdenes colocadas: %d/%d", placed, len(levels))
         log.info("Grid activo | %d niveles colocados", placed)

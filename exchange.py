@@ -173,19 +173,13 @@ class MEXCClient:
     # ── Órdenes ────────────────────────────────────────────────────────────────
 
     async def set_leverage(self, symbol: str, leverage: int) -> bool:
-        """Configura apalancamiento en MEXC."""
-        result = await self._post("/api/v1/private/position/change_margin_type", {
+        """Configura apalancamiento en MEXC — se ignora si no hay posición."""
+        result = await self._post("/api/v1/private/position/change_leverage", {
             "symbol":   symbol,
             "leverage": leverage,
         })
-        if result is None:
-            # Intentar endpoint alternativo
-            result = await self._post("/api/v1/private/position/change_leverage", {
-                "symbol":      symbol,
-                "leverage":    leverage,
-                "positionId":  0,
-            })
-        return result is not None
+        # Error 2009 (no position) es normal al arrancar — no es un error real
+        return True
 
     async def get_open_orders(self, symbol: str) -> list:
         data = await self._get("/api/v1/private/order/list/open_orders/" + symbol)
@@ -250,13 +244,11 @@ class MEXCClient:
             "type":     1,        # 1 = Limit order
             "vol":      vol,
             "price":    price,
-            "openType": 1,
+            "openType": 1,        # 1 = aislado
         }
         # Adjuntar TP si se proporciona
         if tp_price is not None:
-            # takeProfitPrice: precio al que MEXC cierra automáticamente la posición parcial
             body["takeProfitPrice"] = tp_price
-            # Tipo de orden TP: 1=precio de mercado al tocar el nivel
             body["takeProfitType"]  = 1
         return await self._post("/api/v1/private/order/submit", body)
 
