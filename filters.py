@@ -10,7 +10,7 @@ import time
 import logging
 from datetime import datetime, time as dtime
 from collections import deque
-from config import Config
+import config
 
 log = logging.getLogger("filters")
 
