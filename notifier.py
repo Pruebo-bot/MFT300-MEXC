@@ -15,7 +15,7 @@ import asyncio
 import logging
 import aiohttp
 from typing import Optional, Callable
-from config import Config
+import config
 
 log = logging.getLogger("notifier")
 
@@ -37,7 +37,7 @@ KEYBOARD = {
 
 
 class TelegramNotifier:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg):
         self.token   = cfg.TELEGRAM_TOKEN
         self.chat_id = cfg.TELEGRAM_CHAT_ID
         self.enabled = bool(self.token and self.chat_id)
