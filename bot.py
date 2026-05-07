@@ -92,7 +92,7 @@ class MFT300MEXCBot:
             await grid.cancel_all_orders()
             self.pairs[symbol].reset()
         await self.notifier.send_with_keyboard(
-            "⏸ *Pausa de emergencia*\nÓrdenes canceladas.\nPulsa 🟢 START para reanudar.")
+            "⏸ *Pausa de emergencia*\nÓrdenes límite canceladas — posiciones mantenidas.\nPulsa 🟢 START para reanudar.")
 
     async def _cmd_stop(self):
         await self.stop("Detenido por Telegram")
@@ -173,16 +173,36 @@ class MFT300MEXCBot:
             f"TP: {self.cfg.TAKE_PROFIT_PCT}%"
         )
 
+        # ── Check caducidad API keys ───────────────────────────────────────────
+        if self.cfg.API_EXPIRY_DATE:
+            try:
+                from datetime import date as _date
+                expiry = _date.fromisoformat(self.cfg.API_EXPIRY_DATE)
+                days_left = (expiry - _date.today()).days
+                if days_left <= 2:
+                    await self.notifier.send(
+                        f"⚠️ *AVISO — API Keys MEXC*\n"
+                        f"Las keys caducan en *{days_left} día(s)* ({self.cfg.API_EXPIRY_DATE})\n"
+                        f"Renuévalas en MEXC → API Management y actualiza las variables en Railway."
+                    )
+                    log.warning("⚠️  API keys MEXC caducan en %d día(s)", days_left)
+            except Exception as e:
+                log.error("Error comprobando caducidad API: %s", e)
+
         self._running = True
         await self._main_loop()
 
     async def stop(self, reason="Manual"):
         log.warning("Deteniendo bot: %s", reason)
         self._running = False
-        self.notifier.stop_polling()
         for symbol, grid in self.grids.items():
             await grid.cancel_all_orders()
-        await self.notifier.send(f"🛑 *Bot detenido*\nMotivo: {reason}")
+            self.pairs[symbol].reset()
+        await self.notifier.send(
+            f"🛑 *Bot detenido*\nMotivo: {reason}\n"
+            f"Órdenes límite canceladas — posiciones mantenidas."
+        )
+        self.notifier.stop_polling()
 
     async def _main_loop(self):
         while self._running or self._paused:
