@@ -184,22 +184,10 @@ class MEXCClient:
         return []
 
     async def cancel_all_orders(self, symbol: str) -> bool:
-        import asyncio as _asyncio
-        orders = await self.get_open_orders(symbol)
-        if not orders:
-            log.info("Todas las órdenes canceladas")
-            return True
-        cancelled = 0
-        for order in orders:
-            order_id = str(order.get("orderId"))
-            result = await self._post("/api/v1/private/order/cancel", {
-                "symbol":  symbol,
-                "orderId": order_id,
-            })
-            if result is not None:
-                cancelled += 1
-            await _asyncio.sleep(0.5)
-        log.info("Todas las órdenes canceladas (%d/%d)", cancelled, len(orders))
+        result = await self._post("/api/v1/private/order/cancel_all", {
+            "symbol": symbol,
+        })
+        log.info("Todas las órdenes canceladas")
         return True
 
     async def close_all_positions(self, symbol: str) -> bool:
