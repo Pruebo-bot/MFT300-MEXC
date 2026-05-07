@@ -273,13 +273,15 @@ class MEXCClient:
             "pageNum":  1,
             "pageSize": 5,
         })
-        if data and isinstance(data, dict):
-            positions = data.get("resultList", [])
-            closed = [p for p in positions if p.get("state") == 3]  # 3=cerrada
+        if data and isinstance(data, list):
+            # MEXC devuelve lista directamente, filtrar las cerradas (state=3)
+            closed = [p for p in data if p.get("state") == 3]
             if not closed:
                 return None
-            latest  = closed[0]
-            pos_id  = str(latest.get("positionId"))
+            # Ordenar por updateTime descendente — la más reciente primero
+            closed.sort(key=lambda x: x.get("updateTime", 0), reverse=True)
+            latest   = closed[0]
+            pos_id   = str(latest.get("positionId"))
             if pos_id == self._last_closed_order_id:
                 return None
             close_time = float(latest.get("updateTime", 0)) / 1000
@@ -287,13 +289,16 @@ class MEXCClient:
                 self._last_closed_order_id = pos_id
                 return None
             self._last_closed_order_id = pos_id
-            realized = float(latest.get("realised", 0))
-            fee      = abs(float(latest.get("totalFee", 0)))
-            side_num = int(latest.get("positionType", 1))
-            side_str = "BUY" if side_num == 1 else "SELL"
+            realized  = float(latest.get("realised", 0))
+            fee       = abs(float(latest.get("totalFee", 0)))
+            side_num  = int(latest.get("positionType", 1))
+            side_str  = "LONG" if side_num == 1 else "SHORT"
             avg_price = float(latest.get("closeAvgPrice", 0))
-            im        = float(latest.get("im", config.ORDER_SIZE_USDT))
-            pnl_pct   = (realized / im * 100) if im != 0 else 0.0
+            # Usar im si está disponible, sino ORDER_SIZE_USDT
+            im = float(latest.get("im", 0))
+            if im == 0:
+                im = config.ORDER_SIZE_USDT
+            pnl_pct = (realized / im * 100) if im != 0 else 0.0
             return {
                 "pnl_usdt": realized,
                 "pnl_pct":  pnl_pct,
