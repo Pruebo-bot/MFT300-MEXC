@@ -44,7 +44,7 @@ class GridEngine:
             levels.append({"price": self._round_price(bp), "side": 1, "distance": i})  # 1=OpenLong
         for i in range(1, n_sell + 1):
             sp = center * (1 + spacing * i)
-            levels.append({"price": self._round_price(sp), "side": 2, "distance": i})  # 2=OpenShort
+            levels.append({"price": self._round_price(sp), "side": 3, "distance": i})  # 3=OpenShort MEXC
         levels.sort(key=lambda x: x["distance"])
         return levels
 

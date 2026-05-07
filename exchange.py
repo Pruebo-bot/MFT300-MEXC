@@ -1,7 +1,7 @@
 """
 Cliente para la API de MEXC Futuros Perpetuos (USDT-M)
 Autenticación: HMAC SHA256 estándar
-Base URL: https://contract.mexc.com
+Base URL: https://api.mexc.com
 Símbolos: BTC_USDT, ETH_USDT, FET_USDT...
 """
 
@@ -173,31 +173,34 @@ class MEXCClient:
     # ── Órdenes ────────────────────────────────────────────────────────────────
 
     async def set_leverage(self, symbol: str, leverage: int) -> bool:
-        """Configura apalancamiento en MEXC — se ignora si no hay posición."""
-        result = await self._post("/api/v1/private/position/change_leverage", {
-            "symbol":   symbol,
-            "leverage": leverage,
-        })
-        # Error 2009 (no position) es normal al arrancar — no es un error real
         return True
 
     async def get_open_orders(self, symbol: str) -> list:
         data = await self._get("/api/v1/private/order/list/open_orders/" + symbol)
+        if data and isinstance(data, list):
+            return data
         if data and isinstance(data, dict):
             return data.get("resultList", [])
         return []
 
     async def cancel_all_orders(self, symbol: str) -> bool:
+        import asyncio as _asyncio
         orders = await self.get_open_orders(symbol)
         if not orders:
+            log.info("Todas las órdenes canceladas")
             return True
-        order_ids = [str(o.get("orderId")) for o in orders]
-        result = await self._post("/api/v1/private/order/cancel_orders", {
-            "symbol":   symbol,
-            "orderIds": order_ids,
-        })
-        log.info("Todas las órdenes canceladas")
-        return result is not None
+        cancelled = 0
+        for order in orders:
+            order_id = str(order.get("orderId"))
+            result = await self._post("/api/v1/private/order/cancel", {
+                "symbol":  symbol,
+                "orderId": order_id,
+            })
+            if result is not None:
+                cancelled += 1
+            await _asyncio.sleep(0.5)
+        log.info("Todas las órdenes canceladas (%d/%d)", cancelled, len(orders))
+        return True
 
     async def close_all_positions(self, symbol: str) -> bool:
         pos = await self.get_position(symbol)
@@ -228,8 +231,6 @@ class MEXCClient:
             "vol":      vol,
             "openType": 1,        # 1 = aislado
         }
-        if leverage:
-            body["leverage"] = leverage
         return await self._post("/api/v1/private/order/submit", body)
 
     async def place_limit_order(self, symbol: str, side: int, vol: float,
@@ -238,13 +239,15 @@ class MEXCClient:
         side: 1=OpenLong, 2=OpenShort, 3=CloseLong, 4=CloseShort
         tp_price: precio de take profit adjunto a la orden
         """
+        import config as _cfg
         body = {
             "symbol":   symbol,
             "side":     side,
-            "type":     1,        # 1 = Limit order
+            "type":     1,
             "vol":      vol,
-            "price":    price,
-            "openType": 1,        # 1 = aislado
+            "price":    round(price, 4),
+            "openType": 1,
+            "leverage": _cfg.LEVERAGE,
         }
         # Adjuntar TP si se proporciona
         if tp_price is not None:

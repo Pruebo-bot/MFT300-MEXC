@@ -3,7 +3,7 @@ import os
 # ── API MEXC Futuros ───────────────────────────────────────────────────────────
 MEXC_API_KEY    = os.getenv("MEXC_API_KEY", "")
 MEXC_API_SECRET = os.getenv("MEXC_API_SECRET", "")
-BASE_URL        = os.getenv("MEXC_BASE_URL", "https://futures.mexc.com")
+BASE_URL        = os.getenv("MEXC_BASE_URL", "https://api.mexc.com")
 
 # ── Telegram ───────────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
