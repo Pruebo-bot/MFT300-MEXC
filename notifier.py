@@ -172,7 +172,7 @@ class TelegramNotifier:
                 await self._on_week()
             elif data == "cmd_restart":
                 await self.send("🔄 Reiniciando servicio del sistema...")
-                subprocess.Popen(["systemctl", "restart", "mft300-mexc"])
+                subprocess.Popen(["sudo", "systemctl", "restart", "mft300-mexc"])
             elif data == "cmd_stopsys":
                 await self.send("⛔ Servicio del sistema detenido.\nUsa `systemctl start mft300-mexc` para reanudar.")
 
