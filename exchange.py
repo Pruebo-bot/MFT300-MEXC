@@ -299,13 +299,15 @@ class MEXCClient:
         side: 1=OpenLong, 2=OpenShort, 3=CloseLong, 4=CloseShort
         tp_price: precio de take profit adjunto a la orden
         """
+        import config as _cfg
         body = {
             "symbol":   symbol,
             "side":     side,
-            "type":     1,        # 1 = Limit order
+            "type":     1,
             "vol":      vol,
-            "price":    price,
-            "openType": 1,        # 1 = aislado
+            "price":    round(price, 4),
+            "openType": 1,
+            "leverage": _cfg.LEVERAGE,
         }
         # Adjuntar TP si se proporciona
         if tp_price is not None:
