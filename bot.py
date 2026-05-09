@@ -43,6 +43,7 @@ class MFT300MEXCBot:
         self.notifier  = TelegramNotifier(cfg)
 
         self.pairs: dict[str, PairState] = {s: PairState(symbol=s) for s in cfg.SYMBOLS}
+        self._locks: dict[str, asyncio.Lock] = {s: asyncio.Lock() for s in cfg.SYMBOLS}
         self.grids: dict[str, GridEngine] = {
             s: GridEngine(cfg, self.exchange, self.pairs[s]) for s in cfg.SYMBOLS
         }
@@ -214,6 +215,12 @@ class MFT300MEXCBot:
             await asyncio.sleep(self.cfg.LOOP_INTERVAL_SEC)
 
     async def _cycle(self, symbol: str):
+        if self._locks[symbol].locked():
+            return
+        async with self._locks[symbol]:
+            await self._cycle_locked(symbol)
+
+    async def _cycle_locked(self, symbol: str):
         state  = self.pairs[symbol]
         grid   = self.grids[symbol]
         vf0    = self.vol_filters0[symbol]
