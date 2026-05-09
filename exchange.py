@@ -176,15 +176,17 @@ class MEXCClient:
             side  = int(pos.get("positionType", 1))
             if entry == 0 or vol == 0 or im == 0:
                 return None
-            pnl = (price - entry) * vol if side == 1 else (entry - price) * vol
+            contract_size = 10.0  # FET_USDT contractSize = 10
+            pnl = (price - entry) * vol * contract_size if side == 1 else (entry - price) * vol * contract_size
             return (pnl / im) * 100
         except Exception as e:
             log.error("get_position_pnl_pct error: %s", e)
         return None
 
     async def get_side_pnl_pct(self, symbol: str, position_type: int) -> Optional[float]:
-        """Calcula el PnL% acumulado de un lado (1=LONG, 2=SHORT)."""
+        """Calcula el ROE% acumulado de un lado (1=LONG, 2=SHORT) — incluye apalancamiento."""
         try:
+            import config as _cfg
             price = await self.get_price(symbol)
             if not price:
                 return None
@@ -196,12 +198,14 @@ class MEXCClient:
             for pos in data:
                 if int(pos.get("positionType", 0)) != position_type:
                     continue
-                entry = float(pos.get("openAvgPrice", 0))
-                vol   = float(pos.get("holdVol", 0))
-                im    = float(pos.get("im", 0))
+                entry    = float(pos.get("openAvgPrice", 0))
+                vol      = float(pos.get("holdVol", 0))
+                im       = float(pos.get("im", 0))
+                leverage = float(pos.get("leverage", _cfg.LEVERAGE))
                 if entry == 0 or vol == 0:
                     continue
-                pnl = (price - entry) * vol if position_type == 1 else (entry - price) * vol
+                contract_size = 10.0  # FET_USDT contractSize = 10
+                pnl = (price - entry) * vol * contract_size if position_type == 1 else (entry - price) * vol * contract_size
                 total_pnl += pnl
                 total_im  += im
             if total_im == 0:
@@ -299,15 +303,13 @@ class MEXCClient:
         side: 1=OpenLong, 2=OpenShort, 3=CloseLong, 4=CloseShort
         tp_price: precio de take profit adjunto a la orden
         """
-        import config as _cfg
         body = {
             "symbol":   symbol,
             "side":     side,
-            "type":     1,
+            "type":     1,        # 1 = Limit order
             "vol":      vol,
-            "price":    round(price, 4),
-            "openType": 1,
-            "leverage": _cfg.LEVERAGE,
+            "price":    price,
+            "openType": 1,        # 1 = aislado
         }
         # Adjuntar TP si se proporciona
         if tp_price is not None:
