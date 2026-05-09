@@ -246,11 +246,15 @@ class MFT300MEXCBot:
                 await grid.cancel_all_orders()
                 state.reset()
                 log.info("[%s] 🌙 Pausa horaria activada", symbol)
-                await self.notifier.send(f"🌙 *{symbol}* — Pausa horaria activada")
+                await self.notifier.send(
+                    f"🌙 *{symbol} — Pausa horaria*\n"
+                    f"Horario: `{start_s} - {end_s}` (hora España)\n"
+                    f"Órdenes canceladas — posiciones mantenidas."
+                )
             elif not in_pause and state.scheduled_was_active:
                 state.scheduled_was_active = False
                 state.paused_scheduled     = False
-                await self.notifier.send(f"☀️ *{symbol}* — Pausa horaria finalizada")
+                await self.notifier.send(f"☀️ *{symbol}* — Pausa horaria finalizada. Reanudando grid.")
             if state.paused_scheduled:
                 return
 
