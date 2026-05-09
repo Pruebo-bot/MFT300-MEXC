@@ -1,7 +1,7 @@
 """
 Cliente para la API de MEXC Futuros Perpetuos (USDT-M)
 Autenticación: HMAC SHA256 estándar
-Base URL: https://api.mexc.com
+Base URL: https://contract.mexc.com
 Símbolos: BTC_USDT, ETH_USDT, FET_USDT...
 """
 
@@ -162,33 +162,103 @@ class MEXCClient:
         return None
 
     async def get_position_pnl_pct(self, symbol: str) -> Optional[float]:
-        pos = await self.get_position(symbol)
-        if pos:
-            unrealized = float(pos.get("unrealized", 0))
-            im         = float(pos.get("im", 0))
-            if im != 0:
-                return (unrealized / im) * 100
+        """Devuelve el PnL% de la primera posición (para SL individual)."""
+        try:
+            pos = await self.get_position(symbol)
+            if not pos:
+                return None
+            price = await self.get_price(symbol)
+            if not price:
+                return None
+            entry = float(pos.get("openAvgPrice", 0))
+            vol   = float(pos.get("holdVol", 0))
+            im    = float(pos.get("im", 0))
+            side  = int(pos.get("positionType", 1))
+            if entry == 0 or vol == 0 or im == 0:
+                return None
+            pnl = (price - entry) * vol if side == 1 else (entry - price) * vol
+            return (pnl / im) * 100
+        except Exception as e:
+            log.error("get_position_pnl_pct error: %s", e)
         return None
+
+    async def get_side_pnl_pct(self, symbol: str, position_type: int) -> Optional[float]:
+        """Calcula el PnL% acumulado de un lado (1=LONG, 2=SHORT)."""
+        try:
+            price = await self.get_price(symbol)
+            if not price:
+                return None
+            data = await self._get("/api/v1/private/position/open_positions", {"symbol": symbol})
+            if not data or not isinstance(data, list):
+                return None
+            total_pnl = 0.0
+            total_im  = 0.0
+            for pos in data:
+                if int(pos.get("positionType", 0)) != position_type:
+                    continue
+                entry = float(pos.get("openAvgPrice", 0))
+                vol   = float(pos.get("holdVol", 0))
+                im    = float(pos.get("im", 0))
+                if entry == 0 or vol == 0:
+                    continue
+                pnl = (price - entry) * vol if position_type == 1 else (entry - price) * vol
+                total_pnl += pnl
+                total_im  += im
+            if total_im == 0:
+                return None
+            return (total_pnl / total_im) * 100
+        except Exception as e:
+            log.error("get_side_pnl_pct error: %s", e)
+        return None
+
+    async def close_side_positions(self, symbol: str, position_type: int) -> bool:
+        """Cierra todas las posiciones de un lado (1=LONG, 2=SHORT)."""
+        try:
+            price = await self.get_price(symbol)
+            data = await self._get("/api/v1/private/position/open_positions", {"symbol": symbol})
+            if not data or not isinstance(data, list):
+                return False
+            for pos in data:
+                if int(pos.get("positionType", 0)) != position_type:
+                    continue
+                vol = float(pos.get("holdVol", 0))
+                if vol == 0:
+                    continue
+                close_side = 2 if position_type == 1 else 4  # 2=CloseLong, 4=CloseShort
+                await self.place_market_order(symbol, close_side, vol)
+            return True
+        except Exception as e:
+            log.error("close_side_positions error: %s", e)
+        return False
 
     # ── Órdenes ────────────────────────────────────────────────────────────────
 
     async def set_leverage(self, symbol: str, leverage: int) -> bool:
+        """Configura apalancamiento en MEXC — se ignora si no hay posición."""
+        result = await self._post("/api/v1/private/position/change_leverage", {
+            "symbol":   symbol,
+            "leverage": leverage,
+        })
+        # Error 2009 (no position) es normal al arrancar — no es un error real
         return True
 
     async def get_open_orders(self, symbol: str) -> list:
         data = await self._get("/api/v1/private/order/list/open_orders/" + symbol)
-        if data and isinstance(data, list):
-            return data
         if data and isinstance(data, dict):
             return data.get("resultList", [])
         return []
 
     async def cancel_all_orders(self, symbol: str) -> bool:
-        result = await self._post("/api/v1/private/order/cancel_all", {
-            "symbol": symbol,
+        orders = await self.get_open_orders(symbol)
+        if not orders:
+            return True
+        order_ids = [str(o.get("orderId")) for o in orders]
+        result = await self._post("/api/v1/private/order/cancel_orders", {
+            "symbol":   symbol,
+            "orderIds": order_ids,
         })
         log.info("Todas las órdenes canceladas")
-        return True
+        return result is not None
 
     async def close_all_positions(self, symbol: str) -> bool:
         pos = await self.get_position(symbol)
@@ -219,6 +289,8 @@ class MEXCClient:
             "vol":      vol,
             "openType": 1,        # 1 = aislado
         }
+        if leverage:
+            body["leverage"] = leverage
         return await self._post("/api/v1/private/order/submit", body)
 
     async def place_limit_order(self, symbol: str, side: int, vol: float,
@@ -227,15 +299,13 @@ class MEXCClient:
         side: 1=OpenLong, 2=OpenShort, 3=CloseLong, 4=CloseShort
         tp_price: precio de take profit adjunto a la orden
         """
-        import config as _cfg
         body = {
             "symbol":   symbol,
             "side":     side,
-            "type":     1,
+            "type":     1,        # 1 = Limit order
             "vol":      vol,
-            "price":    round(price, 4),
-            "openType": 1,
-            "leverage": _cfg.LEVERAGE,
+            "price":    price,
+            "openType": 1,        # 1 = aislado
         }
         # Adjuntar TP si se proporciona
         if tp_price is not None:

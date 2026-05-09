@@ -516,20 +516,18 @@ class MFT300MEXCBot:
             )
             return
 
-        # ── Take Profit global ────────────────────────────────────────────────
-        if (self.cfg.GLOBAL_TP_PCT > 0
-                and pnl_pct_pos is not None
-                and pnl_pct_pos >= self.cfg.GLOBAL_TP_PCT):
-            log.info("[%s] 🎯 TP global activado | PnL: %.2f%%", symbol, pnl_pct_pos)
-            await grid.cancel_all_orders()
-            await grid.close_all_positions()
-            state.reset()
-            await self.notifier.send(
-                f"🎯 *{symbol} — Take Profit global*\n"
-                f"PnL acumulado: `{pnl_pct_pos:.2f}%`\n"
-                f"Posición cerrada con beneficio. Grid reiniciando..."
-            )
-            return
+        # ── Take Profit global por lado ───────────────────────────────────────
+        if self.cfg.GLOBAL_TP_PCT > 0:
+            for side_type, side_name in [(1, "LONG"), (2, "SHORT")]:
+                side_pnl = await self.exchange.get_side_pnl_pct(symbol, side_type)
+                if side_pnl is not None and side_pnl >= self.cfg.GLOBAL_TP_PCT:
+                    log.info("[%s] 🎯 TP global %s | PnL: %.2f%%", symbol, side_name, side_pnl)
+                    await self.exchange.close_side_positions(symbol, side_type)
+                    await self.notifier.send(
+                        f"🎯 *{symbol} — Take Profit global {side_name}*\n"
+                        f"PnL acumulado {side_name}: `{side_pnl:.2f}%`\n"
+                        f"Posiciones {side_name} cerradas con beneficio."
+                    )
 
         # Zona protegida
         if pnl_pct_pos is not None and self.protected_zone.is_protected(pnl_pct_pos):
