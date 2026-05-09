@@ -335,8 +335,8 @@ class MEXCClient:
         """Obtiene el último trade cerrado para detectar PnL."""
         data = await self._get("/api/v1/private/position/list/history_positions", {
             "symbol":   symbol,
-            "pageNum":  1,
-            "pageSize": 5,
+            "pageNum":  "1",
+            "pageSize": "5",
         })
         if data and isinstance(data, list):
             # MEXC devuelve lista directamente, filtrar las cerradas (state=3)
