@@ -84,6 +84,9 @@ API_EXPIRY_DATE: str = os.getenv("API_EXPIRY_DATE", "")  # Formato: YYYY-MM-DD
 # ── Loop ───────────────────────────────────────────────────────────────────────
 LOOP_INTERVAL_SEC: float = float(os.getenv("LOOP_INTERVAL_SEC", "2"))
 
+# ── Take Profit global de posición ────────────────────────────────────────────
+GLOBAL_TP_PCT:  float = float(os.getenv("GLOBAL_TP_PCT", "0.0"))   # 0 = desactivado
+
 # ── Zona protegida ─────────────────────────────────────────────────────────────
 PROTECTED_ZONE_LOW:  float = float(os.getenv("PROTECTED_ZONE_LOW",  "-4.0"))
 PROTECTED_ZONE_HIGH: float = float(os.getenv("PROTECTED_ZONE_HIGH", "1.0"))

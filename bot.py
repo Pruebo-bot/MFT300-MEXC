@@ -516,6 +516,21 @@ class MFT300MEXCBot:
             )
             return
 
+        # ── Take Profit global ────────────────────────────────────────────────
+        if (self.cfg.GLOBAL_TP_PCT > 0
+                and pnl_pct_pos is not None
+                and pnl_pct_pos >= self.cfg.GLOBAL_TP_PCT):
+            log.info("[%s] 🎯 TP global activado | PnL: %.2f%%", symbol, pnl_pct_pos)
+            await grid.cancel_all_orders()
+            await grid.close_all_positions()
+            state.reset()
+            await self.notifier.send(
+                f"🎯 *{symbol} — Take Profit global*\n"
+                f"PnL acumulado: `{pnl_pct_pos:.2f}%`\n"
+                f"Posición cerrada con beneficio. Grid reiniciando..."
+            )
+            return
+
         # Zona protegida
         if pnl_pct_pos is not None and self.protected_zone.is_protected(pnl_pct_pos):
             log.debug("[%s] Zona protegida | PnL: %.2f%%", symbol, pnl_pct_pos)
