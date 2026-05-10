@@ -362,10 +362,11 @@ class MEXCClient:
                         "trade_id": pos_id,
                     })
 
+                # Actualizar ANTES de retornar para evitar duplicados
                 if positions:
                     self._last_closed_pos_id = str(positions[0].get("positionId"))
 
-                return new_trades
+                return new_trades[:1]  # Solo el más reciente para evitar duplicados
         except Exception as e:
             log.error("get_new_closed_trades: %s", e)
         return []
