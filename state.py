@@ -31,6 +31,7 @@ class PairState:
     trend_resume_at:    float = 0.0
     consecutive_resume_at: float = 0.0
     consecutive_losses: int = 0          # Contador de pérdidas consecutivas
+    tp_global_active:   bool = False       # Flag para evitar bucle de TP global
     paused_daily_loss:  bool  = False
 
     # Timestamps de reanudación

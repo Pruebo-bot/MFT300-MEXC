@@ -596,10 +596,11 @@ class MFT300_MEXCMEXCBot:
             return
 
         # ── Take Profit global por lado ───────────────────────────────────────
-        if self.cfg.GLOBAL_TP_PCT > 0:
+        if self.cfg.GLOBAL_TP_PCT > 0 and not state.tp_global_active:
             for side_type, side_name in [(1, "LONG"), (2, "SHORT")]:
                 side_pnl = await self.exchange.get_side_pnl_pct(symbol, side_type)
                 if side_pnl is not None and side_pnl >= self.cfg.GLOBAL_TP_PCT:
+                    state.tp_global_active = True
                     log.info("[%s] 🎯 TP global %s | PnL: %.2f%%", symbol, side_name, side_pnl)
                     await self.exchange.close_side_positions(symbol, side_type)
                     await self.notifier.send(
@@ -607,6 +608,8 @@ class MFT300_MEXCMEXCBot:
                         f"PnL acumulado: `{side_pnl:.2f}%`\n"
                         f"Posiciones {side_name} cerradas."
                     )
+                    await asyncio.sleep(5)
+                    state.tp_global_active = False
 
         # Zona protegida
         if pnl_pct_pos is not None and self.protected_zone.is_protected(pnl_pct_pos):
