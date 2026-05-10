@@ -13,36 +13,31 @@ Seguridad: solo responde al TELEGRAM_CHAT_ID configurado.
 
 import asyncio
 import logging
-import subprocess
 import aiohttp
 from typing import Optional, Callable
-import config
+from config import Config
 
 log = logging.getLogger("notifier")
 
 KEYBOARD = {
     "inline_keyboard": [
         [
-            {"text": "🟢 START",   "callback_data": "cmd_start"},
-            {"text": "🟡 PAUSE",   "callback_data": "cmd_pause"},
+            {"text": "🟢 START",  "callback_data": "cmd_start"},
+            {"text": "🟡 PAUSE",  "callback_data": "cmd_pause"},
         ],
         [
-            {"text": "📊 STATUS",  "callback_data": "cmd_status"},
+            {"text": "📊 STATUS", "callback_data": "cmd_status"},
         ],
         [
-            {"text": "📈 HOY",     "callback_data": "cmd_today"},
-            {"text": "📅 SEMANA",  "callback_data": "cmd_week"},
-        ],
-        [
-            {"text": "🔄 RESTART", "callback_data": "cmd_restart"},
-            {"text": "⛔ STOP SYS","callback_data": "cmd_stopsys"},
+            {"text": "📈 HOY",    "callback_data": "cmd_today"},
+            {"text": "📅 SEMANA", "callback_data": "cmd_week"},
         ],
     ]
 }
 
 
 class TelegramNotifier:
-    def __init__(self, cfg):
+    def __init__(self, cfg: Config):
         self.token   = cfg.TELEGRAM_TOKEN
         self.chat_id = cfg.TELEGRAM_CHAT_ID
         self.enabled = bool(self.token and self.chat_id)
@@ -170,11 +165,6 @@ class TelegramNotifier:
                 await self._on_today()
             elif data == "cmd_week" and self._on_week:
                 await self._on_week()
-            elif data == "cmd_restart":
-                await self.send("🔄 Reiniciando servicio del sistema...")
-                subprocess.Popen(["sudo", "systemctl", "restart", "mft300-mexc"])
-            elif data == "cmd_stopsys":
-                await self.send("⛔ Servicio del sistema detenido.\nUsa `systemctl start mft300-mexc` para reanudar.")
 
     async def _answer_callback(self, callback_query_id: str):
         """Confirma el tap del botón para que Telegram quite el spinner."""

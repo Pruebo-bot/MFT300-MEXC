@@ -1,8 +1,8 @@
 """
 Cliente para la API de MEXC Futuros Perpetuos (USDT-M)
-Autenticación: HMAC SHA256 estándar
-Base URL: https://contract.mexc.com
-Símbolos: BTC_USDT, ETH_USDT, FET_USDT...
+Firma: HMAC SHA256 — api_key + timestamp + params_str
+Base URL: https://api.mexc.com
+Símbolos: FET_USDT, BTC_USDT...
 """
 
 import hashlib
@@ -13,27 +13,29 @@ import logging
 import aiohttp
 from typing import Optional
 
-import config
-
-log = logging.getLogger(__name__)
+log = logging.getLogger("exchange")
 
 
 class MEXCClient:
-    def __init__(self):
-        self.api_key    = config.MEXC_API_KEY
-        self.api_secret = config.MEXC_API_SECRET
-        self.base_url   = config.BASE_URL
+    def __init__(self, cfg):
+        self.cfg        = cfg
+        self.api_key    = cfg.API_KEY
+        self.api_secret = cfg.API_SECRET
+        self.base_url   = cfg.BASE_URL
         self._session: Optional[aiohttp.ClientSession] = None
+        self._last_closed_pos_id: Optional[str] = None
         self._ignore_trades_before: float = 0.0
-        self._last_closed_order_id: Optional[str] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
         return self._session
 
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+
     def _sign(self, to_sign: str) -> str:
-        """HMAC SHA256 — firma MEXC: accessKey + timestamp + params."""
         return hmac.new(
             self.api_secret.encode("utf-8"),
             to_sign.encode("utf-8"),
@@ -41,8 +43,7 @@ class MEXCClient:
         ).hexdigest()
 
     def _build_headers(self, timestamp: str, params_str: str) -> dict:
-        # Orden correcto: api_key + timestamp + params_string
-        to_sign  = self.api_key + timestamp + params_str
+        to_sign   = self.api_key + timestamp + params_str
         signature = self._sign(to_sign)
         return {
             "ApiKey":       self.api_key,
@@ -51,33 +52,31 @@ class MEXCClient:
             "Content-Type": "application/json",
         }
 
-    async def _get(self, path: str, params: dict = None) -> Optional[dict]:
+    async def _get(self, path: str, params: dict = None) -> Optional[object]:
         try:
             session   = await self._get_session()
             timestamp = str(int(time.time() * 1000))
-            # Filtrar params None y ordenar alfabéticamente
-            clean_params = {k: v for k, v in (params or {}).items() if v is not None}
-            qs = "&".join(f"{k}={v}" for k, v in sorted(clean_params.items()))
-            headers = self._build_headers(timestamp, qs)
-            url     = f"{self.base_url}{path}"
-            async with session.get(url, params=clean_params, headers=headers) as resp:
+            clean     = {k: str(v) for k, v in (params or {}).items() if v is not None}
+            qs        = "&".join(f"{k}={v}" for k, v in sorted(clean.items()))
+            headers   = self._build_headers(timestamp, qs)
+            url       = f"{self.base_url}{path}"
+            async with session.get(url, params=clean, headers=headers) as resp:
                 data = await resp.json()
                 if data.get("success") and data.get("code") == 0:
                     return data.get("data")
-                log.warning("GET %s error: %s", path, data)
+                log.warning("GET %s → %s", path, data)
         except Exception as e:
             log.error("GET %s excepción: %s", path, e)
         return None
 
-    async def _post(self, path: str, body: dict = None) -> Optional[dict]:
+    async def _post(self, path: str, body: dict = None) -> Optional[object]:
         try:
             session   = await self._get_session()
             timestamp = str(int(time.time() * 1000))
-            # Filtrar valores None del body
-            clean_body = {k: v for k, v in (body or {}).items() if v is not None}
-            body_str   = json.dumps(clean_body)
-            headers    = self._build_headers(timestamp, body_str)
-            url        = f"{self.base_url}{path}"
+            clean     = {k: v for k, v in (body or {}).items() if v is not None}
+            body_str  = json.dumps(clean)
+            headers   = self._build_headers(timestamp, body_str)
+            url       = f"{self.base_url}{path}"
             async with session.post(url, data=body_str, headers=headers) as resp:
                 text = await resp.text()
                 try:
@@ -87,288 +86,290 @@ class MEXCClient:
                     return None
                 if data.get("success") and data.get("code") == 0:
                     return data.get("data")
-                log.warning("POST %s error: %s", path, data)
+                log.warning("POST %s → %s", path, data)
         except Exception as e:
             log.error("POST %s excepción: %s", path, e)
         return None
 
-    # ── Mercado ────────────────────────────────────────────────────────────────
+    # ── Precio ────────────────────────────────────────────────────────────────
 
     async def get_price(self, symbol: str) -> Optional[float]:
-        data = await self._get(f"/api/v1/contract/ticker", {"symbol": symbol})
-        if data:
-            return float(data.get("lastPrice", 0))
-        return None
-
-    async def get_klines(self, symbol: str, interval: str, limit: int = 50) -> list:
-        """interval: Min1, Min5, Min15, Min30, Min60, Hour4, Day1"""
-        data = await self._get(f"/api/v1/contract/kline/{symbol}", {
-            "interval": interval,
-        })
-        if data and isinstance(data, dict):
-            times  = data.get("time", [])
-            opens  = data.get("open", [])
-            highs  = data.get("high", [])
-            lows   = data.get("low", [])
-            closes = data.get("close", [])
-            candles = []
-            for i in range(len(closes)):
-                candles.append({
-                    "time":  times[i] if i < len(times) else 0,
-                    "open":  opens[i] if i < len(opens) else 0,
-                    "high":  highs[i] if i < len(highs) else 0,
-                    "low":   lows[i]  if i < len(lows)  else 0,
-                    "close": closes[i],
-                })
-            return candles[-limit:]
-        return []
-
-    async def get_contract_info(self, symbol: str) -> Optional[dict]:
         try:
             session = await self._get_session()
-            url     = f"{self.base_url}/api/v1/contract/detail"
+            url     = f"{self.base_url}/api/v1/contract/ticker"
             async with session.get(url, params={"symbol": symbol}) as resp:
                 data = await resp.json()
                 if data.get("success") and data.get("code") == 0:
-                    result = data.get("data")
-                    if isinstance(result, list):
-                        for c in result:
-                            if c.get("symbol") == symbol:
-                                return c
-                    elif isinstance(result, dict):
-                        return result
+                    return float(data["data"].get("lastPrice", 0))
         except Exception as e:
-            log.error("get_contract_info error: %s", e)
-        # Fallback — devolver info mínima para que el bot pueda operar
-        log.warning("[%s] Usando info de contrato por defecto", symbol)
-        return {"symbol": symbol, "contractSize": 1, "volScale": 2}
-
-    # ── Cuenta ─────────────────────────────────────────────────────────────────
-
-    async def get_balance(self) -> Optional[float]:
-        data = await self._get("/api/v1/private/account/assets")
-        if data and isinstance(data, list):
-            for asset in data:
-                if asset.get("currency") == "USDT":
-                    return float(asset.get("availableBalance", 0))
+            log.error("get_price: %s", e)
         return None
 
+    # ── Klines ────────────────────────────────────────────────────────────────
+
+    async def get_klines(self, symbol: str, interval: str, limit: int = 50) -> list:
+        """interval: Min1, Min5, Min15, Min30, Min60, Hour4, Day1"""
+        try:
+            session = await self._get_session()
+            url     = f"{self.base_url}/api/v1/contract/kline/{symbol}"
+            async with session.get(url, params={"interval": interval}) as resp:
+                data = await resp.json()
+                if data.get("success") and data.get("code") == 0:
+                    d      = data["data"]
+                    times  = d.get("time", [])
+                    opens  = d.get("open", [])
+                    highs  = d.get("high", [])
+                    lows   = d.get("low", [])
+                    closes = d.get("close", [])
+                    candles = [
+                        {"time": times[i] if i < len(times) else 0,
+                         "open":  opens[i]  if i < len(opens)  else 0,
+                         "high":  highs[i]  if i < len(highs)  else 0,
+                         "low":   lows[i]   if i < len(lows)   else 0,
+                         "close": closes[i]}
+                        for i in range(len(closes))
+                    ]
+                    return candles[-limit:]
+        except Exception as e:
+            log.error("get_klines: %s", e)
+        return []
+
+    # ── Órdenes ───────────────────────────────────────────────────────────────
+
+    async def get_open_orders(self, symbol: str) -> list:
+        timestamp = str(int(time.time() * 1000))
+        to_sign   = self.api_key + timestamp
+        sign      = self._sign(to_sign)
+        headers   = {"ApiKey": self.api_key, "Request-Time": timestamp, "Signature": sign}
+        try:
+            session = await self._get_session()
+            url     = f"{self.base_url}/api/v1/private/order/list/open_orders/{symbol}"
+            async with session.get(url, headers=headers) as resp:
+                data = await resp.json()
+                if data.get("success") and data.get("code") == 0:
+                    result = data.get("data", [])
+                    return result if isinstance(result, list) else result.get("resultList", [])
+        except Exception as e:
+            log.error("get_open_orders: %s", e)
+        return []
+
+    async def cancel_all_orders(self, symbol: str) -> bool:
+        result = await self._post("/api/v1/private/order/cancel_all", {"symbol": symbol})
+        log.info("Todas las órdenes canceladas")
+        return True
+
+    async def place_limit_order(
+        self,
+        symbol: str,
+        side: int,
+        price: float,
+        qty: float,
+        take_profit: Optional[float] = None,
+    ) -> bool:
+        """
+        side: 1=OpenLong, 3=OpenShort
+        """
+        body = {
+            "symbol":   symbol,
+            "side":     side,
+            "type":     1,
+            "vol":      qty,
+            "price":    round(price, 4),
+            "openType": 1,
+            "leverage": self.cfg.LEVERAGE,
+        }
+        if take_profit is not None:
+            body["takeProfitPrice"] = round(take_profit, 4)
+            body["takeProfitType"]  = 1
+        result = await self._post("/api/v1/private/order/submit", body)
+        if result is None:
+            log.warning("place_limit_order falló: side=%s price=%s", side, price)
+        return result is not None
+
+    async def close_all_positions(self, symbol: str) -> bool:
+        result = await self._post("/api/v1/private/order/cancel_all", {"symbol": symbol})
+        # También cerrar posiciones abiertas con market order
+        positions = await self._get_positions(symbol)
+        for pos in positions:
+            vol  = float(pos.get("holdVol", 0))
+            side = int(pos.get("positionType", 1))
+            if vol > 0:
+                close_side = 2 if side == 1 else 4
+                await self._post("/api/v1/private/order/submit", {
+                    "symbol":   symbol,
+                    "side":     close_side,
+                    "type":     5,
+                    "vol":      vol,
+                    "openType": 1,
+                })
+        log.info("Posiciones cerradas")
+        return True
+
+    # ── Posiciones ────────────────────────────────────────────────────────────
+
+    async def _get_positions(self, symbol: str) -> list:
+        timestamp = str(int(time.time() * 1000))
+        params    = {"symbol": symbol}
+        qs        = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+        to_sign   = self.api_key + timestamp + qs
+        sign      = self._sign(to_sign)
+        headers   = {"ApiKey": self.api_key, "Request-Time": timestamp, "Signature": sign}
+        try:
+            session = await self._get_session()
+            url     = f"{self.base_url}/api/v1/private/position/open_positions"
+            async with session.get(url, params=params, headers=headers) as resp:
+                data = await resp.json()
+                if data.get("success") and data.get("code") == 0:
+                    return data.get("data", [])
+        except Exception as e:
+            log.error("_get_positions: %s", e)
+        return []
+
     async def get_position(self, symbol: str) -> Optional[dict]:
-        data = await self._get("/api/v1/private/position/open_positions", {"symbol": symbol})
-        if data and isinstance(data, list):
-            for pos in data:
-                if pos.get("symbol") == symbol and float(pos.get("holdVol", 0)) != 0:
-                    return pos
+        positions = await self._get_positions(symbol)
+        for pos in positions:
+            if float(pos.get("holdVol", 0)) > 0:
+                return pos
         return None
 
     async def get_position_pnl_pct(self, symbol: str) -> Optional[float]:
-        """Devuelve el PnL% de la primera posición (para SL individual)."""
+        """PnL% real sobre el margen (coincide con lo que muestra MEXC)."""
         try:
-            pos = await self.get_position(symbol)
-            if not pos:
-                return None
             price = await self.get_price(symbol)
             if not price:
                 return None
-            entry = float(pos.get("openAvgPrice", 0))
-            vol   = float(pos.get("holdVol", 0))
-            im    = float(pos.get("im", 0))
-            side  = int(pos.get("positionType", 1))
-            if entry == 0 or vol == 0 or im == 0:
-                return None
-            contract_size = 10.0  # FET_USDT contractSize = 10
-            pnl = (price - entry) * vol * contract_size if side == 1 else (entry - price) * vol * contract_size
-            return (pnl / im) * 100
-        except Exception as e:
-            log.error("get_position_pnl_pct error: %s", e)
-        return None
-
-    async def get_side_pnl_pct(self, symbol: str, position_type: int) -> Optional[float]:
-        """Calcula el ROE% acumulado de un lado (1=LONG, 2=SHORT) — incluye apalancamiento."""
-        try:
-            import config as _cfg
-            price = await self.get_price(symbol)
-            if not price:
-                return None
-            data = await self._get("/api/v1/private/position/open_positions", {"symbol": symbol})
-            if not data or not isinstance(data, list):
+            positions = await self._get_positions(symbol)
+            if not positions:
                 return None
             total_pnl = 0.0
             total_im  = 0.0
-            for pos in data:
-                if int(pos.get("positionType", 0)) != position_type:
-                    continue
-                entry    = float(pos.get("openAvgPrice", 0))
-                vol      = float(pos.get("holdVol", 0))
-                im       = float(pos.get("im", 0))
-                leverage = float(pos.get("leverage", _cfg.LEVERAGE))
+            for pos in positions:
+                entry = float(pos.get("openAvgPrice", 0))
+                vol   = float(pos.get("holdVol", 0))
+                im    = float(pos.get("im", 0))
+                side  = int(pos.get("positionType", 1))
                 if entry == 0 or vol == 0:
                     continue
-                contract_size = 10.0  # FET_USDT contractSize = 10
-                pnl = (price - entry) * vol * contract_size if position_type == 1 else (entry - price) * vol * contract_size
+                cs  = self.cfg.CONTRACT_SIZE
+                pnl = (price - entry) * vol * cs if side == 1 else (entry - price) * vol * cs
                 total_pnl += pnl
                 total_im  += im
             if total_im == 0:
                 return None
             return (total_pnl / total_im) * 100
         except Exception as e:
-            log.error("get_side_pnl_pct error: %s", e)
+            log.error("get_position_pnl_pct: %s", e)
+        return None
+
+    async def get_side_pnl_pct(self, symbol: str, position_type: int) -> Optional[float]:
+        """PnL% real de un lado (1=LONG, 2=SHORT) sobre su margen."""
+        try:
+            price = await self.get_price(symbol)
+            if not price:
+                return None
+            positions = await self._get_positions(symbol)
+            total_pnl = 0.0
+            total_im  = 0.0
+            for pos in positions:
+                if int(pos.get("positionType", 0)) != position_type:
+                    continue
+                entry = float(pos.get("openAvgPrice", 0))
+                vol   = float(pos.get("holdVol", 0))
+                im    = float(pos.get("im", 0))
+                if entry == 0 or vol == 0:
+                    continue
+                cs  = self.cfg.CONTRACT_SIZE
+                pnl = (price - entry) * vol * cs if position_type == 1 else (entry - price) * vol * cs
+                total_pnl += pnl
+                total_im  += im
+            if total_im == 0:
+                return None
+            return (total_pnl / total_im) * 100
+        except Exception as e:
+            log.error("get_side_pnl_pct: %s", e)
         return None
 
     async def close_side_positions(self, symbol: str, position_type: int) -> bool:
-        """Cierra todas las posiciones de un lado (1=LONG, 2=SHORT)."""
-        try:
-            price = await self.get_price(symbol)
-            data = await self._get("/api/v1/private/position/open_positions", {"symbol": symbol})
-            if not data or not isinstance(data, list):
-                return False
-            for pos in data:
-                if int(pos.get("positionType", 0)) != position_type:
-                    continue
-                vol = float(pos.get("holdVol", 0))
-                if vol == 0:
-                    continue
-                close_side = 2 if position_type == 1 else 4  # 2=CloseLong, 4=CloseShort
-                await self.place_market_order(symbol, close_side, vol)
-            return True
-        except Exception as e:
-            log.error("close_side_positions error: %s", e)
-        return False
-
-    # ── Órdenes ────────────────────────────────────────────────────────────────
-
-    async def set_leverage(self, symbol: str, leverage: int) -> bool:
-        """Configura apalancamiento en MEXC — se ignora si no hay posición."""
-        result = await self._post("/api/v1/private/position/change_leverage", {
-            "symbol":   symbol,
-            "leverage": leverage,
-        })
-        # Error 2009 (no position) es normal al arrancar — no es un error real
+        """Cierra todas las posiciones de un lado (1=LONG, 2=SHORT) a mercado."""
+        positions = await self._get_positions(symbol)
+        for pos in positions:
+            if int(pos.get("positionType", 0)) != position_type:
+                continue
+            vol = float(pos.get("holdVol", 0))
+            if vol == 0:
+                continue
+            close_side = 2 if position_type == 1 else 4
+            await self._post("/api/v1/private/order/submit", {
+                "symbol":   symbol,
+                "side":     close_side,
+                "type":     5,
+                "vol":      vol,
+                "openType": 1,
+            })
         return True
 
-    async def get_open_orders(self, symbol: str) -> list:
-        data = await self._get("/api/v1/private/order/list/open_orders/" + symbol)
-        if data and isinstance(data, dict):
-            return data.get("resultList", [])
+    async def set_leverage(self, symbol: str, leverage: int) -> bool:
+        return True  # Se pasa en cada orden
+
+    # ── Historial de trades ───────────────────────────────────────────────────
+
+    async def get_new_closed_trades(self, symbol: str) -> list:
+        """Obtiene posiciones cerradas nuevas desde el último procesado."""
+        timestamp = str(int(time.time() * 1000))
+        params    = {"symbol": symbol, "pageNum": "1", "pageSize": "10"}
+        qs        = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+        to_sign   = self.api_key + timestamp + qs
+        sign      = self._sign(to_sign)
+        headers   = {"ApiKey": self.api_key, "Request-Time": timestamp, "Signature": sign}
+        try:
+            session = await self._get_session()
+            url     = f"{self.base_url}/api/v1/private/position/list/history_positions"
+            async with session.get(url, params=params, headers=headers) as resp:
+                data = await resp.json()
+                if not (data.get("success") and data.get("code") == 0):
+                    return []
+                positions = data.get("data", [])
+                if not positions:
+                    return []
+
+                new_trades = []
+                for pos in positions:
+                    if pos.get("state") != 3:
+                        continue
+                    pos_id     = str(pos.get("positionId"))
+                    close_time = float(pos.get("updateTime", 0)) / 1000
+
+                    if pos_id == self._last_closed_pos_id:
+                        break
+                    if close_time < self._ignore_trades_before:
+                        continue
+
+                    realised = float(pos.get("realised", 0))
+                    fee      = abs(float(pos.get("totalFee", 0)))
+                    side_num = int(pos.get("positionType", 1))
+                    price    = float(pos.get("closeAvgPrice", 0))
+                    im       = float(pos.get("im", self.cfg.ORDER_SIZE_USDT))
+                    if im == 0:
+                        im = self.cfg.ORDER_SIZE_USDT
+                    pnl_pct = (realised / im * 100) if im != 0 else 0.0
+
+                    new_trades.append({
+                        "pnl_usdt": realised,
+                        "pnl_pct":  pnl_pct,
+                        "price":    price,
+                        "fee":      fee,
+                        "side":     "BUY" if side_num == 1 else "SELL",
+                        "trade_id": pos_id,
+                    })
+
+                if positions:
+                    self._last_closed_pos_id = str(positions[0].get("positionId"))
+
+                return new_trades
+        except Exception as e:
+            log.error("get_new_closed_trades: %s", e)
         return []
 
-    async def cancel_all_orders(self, symbol: str) -> bool:
-        orders = await self.get_open_orders(symbol)
-        if not orders:
-            return True
-        order_ids = [str(o.get("orderId")) for o in orders]
-        result = await self._post("/api/v1/private/order/cancel_orders", {
-            "symbol":   symbol,
-            "orderIds": order_ids,
-        })
-        log.info("Todas las órdenes canceladas")
-        return result is not None
-
-    async def close_all_positions(self, symbol: str) -> bool:
-        pos = await self.get_position(symbol)
-        if not pos:
-            return True
-        side   = int(pos.get("positionType", 1))  # 1=LONG, 2=SHORT
-        vol    = float(pos.get("holdVol", 0))
-        # Para cerrar: LONG → side=3 (close long), SHORT → side=4 (close short)
-        close_side = 3 if side == 1 else 4
-        result = await self.place_market_order(symbol, close_side, vol)
-        log.info("Posiciones cerradas a mercado")
-        return result is not None
-
-    async def place_market_order(self, symbol: str, side: int, vol: float,
-                                  leverage: int = None) -> Optional[dict]:
-        """
-        side:
-          1 = Abrir LONG
-          2 = Abrir SHORT
-          3 = Cerrar LONG
-          4 = Cerrar SHORT
-        vol: cantidad en contratos
-        """
-        body = {
-            "symbol":   symbol,
-            "side":     side,
-            "type":     5,        # 5 = Market order
-            "vol":      vol,
-            "openType": 1,        # 1 = aislado
-        }
-        if leverage:
-            body["leverage"] = leverage
-        return await self._post("/api/v1/private/order/submit", body)
-
-    async def place_limit_order(self, symbol: str, side: int, vol: float,
-                                 price: float, tp_price: float = None) -> Optional[dict]:
-        """
-        side: 1=OpenLong, 2=OpenShort, 3=CloseLong, 4=CloseShort
-        tp_price: precio de take profit adjunto a la orden
-        """
-        body = {
-            "symbol":   symbol,
-            "side":     side,
-            "type":     1,        # 1 = Limit order
-            "vol":      vol,
-            "price":    price,
-            "openType": 1,        # 1 = aislado
-        }
-        # Adjuntar TP si se proporciona
-        if tp_price is not None:
-            body["takeProfitPrice"] = tp_price
-            body["takeProfitType"]  = 1
-        return await self._post("/api/v1/private/order/submit", body)
-
-    def calculate_vol(self, symbol_info: dict, price: float,
-                      margin_usdt: float, leverage: int) -> float:
-        """Calcula el volumen en contratos para MEXC."""
-        contract_size = float(symbol_info.get("contractSize", 1))
-        vol_scale     = int(symbol_info.get("volScale", 0))
-        min_vol       = float(symbol_info.get("minVol", 1))
-        # vol = (margin * leverage) / (price * contractSize)
-        vol = (margin_usdt * leverage) / (price * contract_size)
-        vol = round(vol, vol_scale)
-        if vol_scale == 0:
-            vol = int(vol)
-        vol = max(vol, min_vol)
-        return vol
-
     async def get_last_closed_trade(self, symbol: str) -> Optional[dict]:
-        """Obtiene el último trade cerrado para detectar PnL."""
-        data = await self._get("/api/v1/private/position/list/history_positions", {
-            "symbol":   symbol,
-            "pageNum":  "1",
-            "pageSize": "5",
-        })
-        if data and isinstance(data, list):
-            # MEXC devuelve lista directamente, filtrar las cerradas (state=3)
-            closed = [p for p in data if p.get("state") == 3]
-            if not closed:
-                return None
-            # Ordenar por updateTime descendente — la más reciente primero
-            closed.sort(key=lambda x: x.get("updateTime", 0), reverse=True)
-            latest   = closed[0]
-            pos_id   = str(latest.get("positionId"))
-            if pos_id == self._last_closed_order_id:
-                return None
-            close_time = float(latest.get("updateTime", 0)) / 1000
-            if close_time < self._ignore_trades_before:
-                self._last_closed_order_id = pos_id
-                return None
-            self._last_closed_order_id = pos_id
-            realized  = float(latest.get("realised", 0))
-            fee       = abs(float(latest.get("totalFee", 0)))
-            side_num  = int(latest.get("positionType", 1))
-            side_str  = "LONG" if side_num == 1 else "SHORT"
-            avg_price = float(latest.get("closeAvgPrice", 0))
-            # Usar im si está disponible, sino ORDER_SIZE_USDT
-            im = float(latest.get("im", 0))
-            if im == 0:
-                im = config.ORDER_SIZE_USDT
-            pnl_pct = (realized / im * 100) if im != 0 else 0.0
-            return {
-                "pnl_usdt": realized,
-                "pnl_pct":  pnl_pct,
-                "price":    avg_price,
-                "fee":      fee,
-                "side":     side_str,
-            }
-        return None
+        trades = await self.get_new_closed_trades(symbol)
+        return trades[0] if trades else None
